@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { and, asc, eq, gt, gte, lt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import type { Facility } from "./booking";
+import type { Facility, RoomSort } from "./booking";
 import { type Booking, bookings, type Room, rooms } from "./schema";
 
 const path = process.env.DATABASE_PATH ?? "./.data/app.db";
@@ -83,7 +83,11 @@ const ROOM_SEEDS: Room[] = [
 db.insert(rooms).values(ROOM_SEEDS).onConflictDoNothing().run();
 
 export type RoomView = Omit<Room, "features"> & { features: Facility[] };
-export type RoomResult = RoomView & { available: boolean; dayBookings: Booking[] };
+export type RoomResult = RoomView & {
+  available: boolean;
+  dayBookings: Booking[];
+  nextAvailableStarts: number[];
+};
 export type BookingView = Booking & { room: RoomView };
 
 export class BookingConflictError extends Error {}
@@ -99,6 +103,8 @@ export function listRooms(input: {
   duration: number;
   capacity: number;
   features: Facility[];
+  sort: RoomSort;
+  availableOnly: boolean;
 }): RoomResult[] {
   const allRooms = db
     .select()
@@ -114,7 +120,7 @@ export function listRooms(input: {
     .all();
   const requestedEnd = input.startMinutes + input.duration;
 
-  return allRooms
+  const results = allRooms
     .map(roomView)
     .filter((room) => input.features.every((feature) => room.features.includes(feature)))
     .map((room) => {
@@ -123,8 +129,29 @@ export function listRooms(input: {
         (booking) =>
           booking.startMinutes < requestedEnd && booking.endMinutes > input.startMinutes,
       );
-      return { ...room, available, dayBookings: roomBookings };
+      const nextAvailableStarts: number[] = [];
+      for (
+        let start = input.startMinutes + 30;
+        start + input.duration <= 22 * 60 && nextAvailableStarts.length < 2;
+        start += 30
+      ) {
+        const end = start + input.duration;
+        const overlaps = roomBookings.some(
+          (booking) => booking.startMinutes < end && booking.endMinutes > start,
+        );
+        if (!overlaps) nextAvailableStarts.push(start);
+      }
+      return { ...room, available, dayBookings: roomBookings, nextAvailableStarts };
     });
+
+  const filtered = input.availableOnly
+    ? results.filter((room) => room.available)
+    : results;
+  return filtered.sort((a, b) => {
+    if (input.sort === "capacity") return b.capacity - a.capacity || a.walkMinutes - b.walkMinutes;
+    if (input.sort === "walk") return a.walkMinutes - b.walkMinutes || a.capacity - b.capacity;
+    return Number(b.available) - Number(a.available) || a.walkMinutes - b.walkMinutes;
+  });
 }
 
 export function listBookings(): BookingView[] {
@@ -136,6 +163,16 @@ export function listBookings(): BookingView[] {
     .limit(50)
     .all()
     .map(({ booking, room }) => ({ ...booking, room: roomView(room) }));
+}
+
+export function getBooking(id: number): BookingView | undefined {
+  const result = db
+    .select({ booking: bookings, room: rooms })
+    .from(bookings)
+    .innerJoin(rooms, eq(bookings.roomId, rooms.id))
+    .where(eq(bookings.id, id))
+    .get();
+  return result ? { ...result.booking, room: roomView(result.room) } : undefined;
 }
 
 export function createBooking(input: {

@@ -6,7 +6,14 @@ export const FACILITIES = [
   { value: "quiet", label: "Quiet zone" },
 ] as const;
 
+export const SORT_OPTIONS = [
+  { value: "best", label: "Best match" },
+  { value: "walk", label: "Nearest" },
+  { value: "capacity", label: "Most seats" },
+] as const;
+
 export type Facility = (typeof FACILITIES)[number]["value"];
+export type RoomSort = (typeof SORT_OPTIONS)[number]["value"];
 
 export type SearchCriteria = {
   date: string;
@@ -15,6 +22,8 @@ export type SearchCriteria = {
   duration: number;
   capacity: number;
   features: Facility[];
+  sort: RoomSort;
+  availableOnly: boolean;
 };
 
 export function dateInCanberra(): string {
@@ -27,6 +36,18 @@ export function dateInCanberra(): string {
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((item) => item.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+export function timeInCanberra(): number {
+  const parts = new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Sydney",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((item) => item.type === type)?.value ?? 0);
+  return part("hour") * 60 + part("minute");
 }
 
 export function timeToMinutes(value: string): number | null {
@@ -61,14 +82,26 @@ export function formatDate(value: string): string {
   }).format(new Date(Date.UTC(year, month - 1, day)));
 }
 
+export function addDays(value: string, days: number): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + days));
+  return [next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate()]
+    .map((part, index) => String(part).padStart(index === 0 ? 4 : 2, "0"))
+    .join("-");
+}
+
 export function parseCriteria(params: URLSearchParams): SearchCriteria {
-  const rawDate = params.get("date") ?? dateInCanberra();
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : dateInCanberra();
-  const rawStart = params.get("start") ?? "10:00";
-  const parsedStart = timeToMinutes(rawStart);
   const rawDuration = Number(params.get("duration") ?? 60);
   const duration = [30, 60, 90, 120, 180].includes(rawDuration) ? rawDuration : 60;
   const latestStart = 22 * 60 - duration;
+  const today = dateInCanberra();
+  const earliestFuture = Math.max(8 * 60, Math.ceil((timeInCanberra() + 30) / 30) * 30);
+  const suggestedDate = earliestFuture <= latestStart ? today : addDays(today, 1);
+  const suggestedStart = earliestFuture <= latestStart ? earliestFuture : 10 * 60;
+  const rawDate = params.get("date") ?? suggestedDate;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : suggestedDate;
+  const rawStart = params.get("start") ?? minutesToTime(suggestedStart);
+  const parsedStart = timeToMinutes(rawStart);
   const startMinutes =
     parsedStart !== null && parsedStart >= 8 * 60 && parsedStart <= latestStart
       ? parsedStart
@@ -83,6 +116,10 @@ export function parseCriteria(params: URLSearchParams): SearchCriteria {
     .filter((value): value is Facility =>
       FACILITIES.some((facility) => facility.value === value),
     );
+  const rawSort = params.get("sort") ?? "best";
+  const sort: RoomSort = SORT_OPTIONS.some((option) => option.value === rawSort)
+    ? (rawSort as RoomSort)
+    : "best";
 
   return {
     date,
@@ -91,5 +128,7 @@ export function parseCriteria(params: URLSearchParams): SearchCriteria {
     duration,
     capacity,
     features: [...new Set(requested)],
+    sort,
+    availableOnly: params.get("availableOnly") === "true",
   };
 }

@@ -4,9 +4,10 @@ Roomline replaces one narrow part of university room booking: turning a group's
 needs into an available place without making the organiser cross-reference a
 room directory, a timetable, and a separate booking form. A user chooses a
 date, start time, duration, group size, and facilities; compares suitable
-spaces; makes a booking; and can confirm or cancel it after a reload. The room
-catalogue is representative prototype data, not a connection to ANU's live
-inventory or identity systems.
+spaces by match, walk, or capacity; makes a booking; and can confirm or cancel
+it after a reload. A clash exposes the next usable times, and a saved booking
+can be exported to a calendar. The room catalogue is representative prototype
+data, not a connection to ANU's live inventory or identity systems.
 
 ## What good looks like here
 
@@ -15,7 +16,9 @@ not merely return a name, and the system must refuse overlapping reservations
 even if two people act at nearly the same time. A successful booking must remain
 visible after refresh and must be reversible. The interface should remain
 legible on a phone while still making several rooms easy to compare on a large
-screen.
+screen. Every visible control should produce a clear state change or a useful
+destination; unavailable actions should offer recovery instead of becoming a
+dead end.
 
 I modelled the smallest credible end-to-end slice: representative spaces,
 availability, booking creation, conflict handling, persistence, and

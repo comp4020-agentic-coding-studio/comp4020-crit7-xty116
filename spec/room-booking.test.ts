@@ -55,7 +55,36 @@ describe("room booking contract", () => {
     bookingId = payload.booking.id;
 
     const page = await fetch(baseUrl);
-    expect(await page.text()).toContain(label);
+    const html = await page.text();
+    expect(html).toContain(label);
+    expect(html).toContain(`/api/bookings/${bookingId}/calendar.ics`);
+  });
+
+  it("filters occupied rooms and sorts remaining rooms by capacity", async () => {
+    const response = await fetch(
+      new URL(
+        `/api/rooms?date=${date}&start=10:00&duration=60&capacity=1&availableOnly=true&sort=capacity`,
+        baseUrl,
+      ),
+    );
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.rooms.every((room: { available: boolean }) => room.available)).toBe(true);
+    expect(payload.rooms.some((room: { id: number }) => room.id === roomId)).toBe(false);
+    const capacities = payload.rooms.map((room: { capacity: number }) => room.capacity);
+    expect(capacities).toEqual([...capacities].sort((a, b) => b - a));
+  });
+
+  it("exports a booking as an iCalendar event", async () => {
+    const response = await fetch(
+      new URL(`/api/bookings/${bookingId}/calendar.ics`, baseUrl),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/calendar");
+    const calendar = await response.text();
+    expect(calendar).toContain("BEGIN:VEVENT");
+    expect(calendar).toContain(label);
+    expect(calendar).toContain("TZID=Australia/Sydney");
   });
 
   it("rejects a partially overlapping booking", async () => {

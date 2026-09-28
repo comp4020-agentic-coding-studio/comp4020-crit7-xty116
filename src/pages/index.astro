@@ -1,18 +1,25 @@
 ---
 import {
+  addDays,
   dateInCanberra,
   FACILITIES,
   formatDate,
   formatTime,
+  minutesToTime,
   parseCriteria,
+  SORT_OPTIONS,
 } from "../lib/booking";
 import { listBookings, listRooms } from "../lib/db";
 import "../styles.css";
 
 const criteria = parseCriteria(Astro.url.searchParams);
 const roomResults = listRooms(criteria);
+const allRoomResults = criteria.availableOnly
+  ? listRooms({ ...criteria, availableOnly: false })
+  : roomResults;
 const currentBookings = listBookings();
-const availableCount = roomResults.filter((room) => room.available).length;
+const availableCount = allRoomResults.filter((room) => room.available).length;
+const matchingCount = allRoomResults.length;
 const notice = Astro.url.searchParams.get("notice");
 const error = Astro.url.searchParams.get("error");
 const facilityLabels = Object.fromEntries(
@@ -31,6 +38,16 @@ searchParams.set("start", criteria.start);
 searchParams.set("duration", String(criteria.duration));
 searchParams.set("capacity", String(criteria.capacity));
 for (const feature of criteria.features) searchParams.append("features", feature);
+searchParams.set("sort", criteria.sort);
+if (criteria.availableOnly) searchParams.set("availableOnly", "true");
+const today = dateInCanberra();
+const tomorrow = addDays(today, 1);
+const queryWith = (key: string, value: string) => {
+  const params = new URLSearchParams(searchParams);
+  params.set(key, value);
+  return `/?${params.toString()}#results`;
+};
+const queryAtTime = (minutes: number) => queryWith("start", minutesToTime(minutes));
 ---
 
 <!doctype html>
@@ -94,6 +111,12 @@ for (const feature of criteria.features) searchParams.append("features", feature
             </label>
           </div>
 
+          <div class="quick-dates" aria-label="Quick date choices">
+            <span>Jump to</span>
+            <a class:list={{ active: criteria.date === today }} href={queryWith("date", today)}>Today</a>
+            <a class:list={{ active: criteria.date === tomorrow }} href={queryWith("date", tomorrow)}>Tomorrow</a>
+          </div>
+
           <div class="field-group two-up">
             <label>
               <span>Duration</span>
@@ -128,9 +151,28 @@ for (const feature of criteria.features) searchParams.append("features", feature
             </div>
           </fieldset>
 
-          <button class="primary-button" type="submit">
-            <span>Update results</span><span aria-hidden="true">→</span>
-          </button>
+          <label class="availability-toggle">
+            <span>
+              <strong>Available rooms only</strong>
+              <small>Hide rooms that clash with this time</small>
+            </span>
+            <input
+              type="checkbox"
+              name="availableOnly"
+              value="true"
+              checked={criteria.availableOnly}
+            />
+            <i aria-hidden="true"></i>
+          </label>
+
+          <input type="hidden" name="sort" value={criteria.sort} />
+
+          <div class="search-actions">
+            <button class="primary-button" type="submit">
+              <span>Update results</span><span aria-hidden="true">→</span>
+            </button>
+            <a href="/">Reset</a>
+          </div>
         </form>
 
         <div class="scope-note">
@@ -143,13 +185,48 @@ for (const feature of criteria.features) searchParams.append("features", feature
         <header class="results-header">
           <div>
             <p class="eyebrow">{formatDate(criteria.date)} · {formatTime(criteria.startMinutes)}–{formatTime(searchEnd)}</p>
-            <h2 id="results-title">{availableCount} of {roomResults.length} rooms available</h2>
+            <h2 id="results-title">{availableCount} of {matchingCount} rooms available</h2>
           </div>
           <div class="legend" aria-label="Availability legend">
             <span><i class="legend-dot selected"></i>Your time</span>
             <span><i class="legend-dot occupied"></i>Booked</span>
           </div>
         </header>
+
+        <div class="session-brief" aria-label="Current room search">
+          <div class="session-date" aria-hidden="true">
+            <span>{formatDate(criteria.date).split(" ")[0]}</span>
+            <strong>{formatDate(criteria.date).split(" ")[1]}</strong>
+          </div>
+          <div>
+            <span>Session</span>
+            <strong>{formatTime(criteria.startMinutes)}–{formatTime(searchEnd)}</strong>
+          </div>
+          <div>
+            <span>Group</span>
+            <strong>{criteria.capacity} {criteria.capacity === 1 ? "person" : "people"}</strong>
+          </div>
+          <div>
+            <span>Required</span>
+            <strong>{criteria.features.length || "No"} {criteria.features.length === 1 ? "facility" : "facilities"}</strong>
+          </div>
+        </div>
+
+        <div class="results-tools">
+          <span>Sort rooms</span>
+          <div class="segmented-control" aria-label="Sort rooms">
+            {SORT_OPTIONS.map((option) => (
+              <a
+                class:list={{ active: criteria.sort === option.value }}
+                href={queryWith("sort", option.value)}
+                aria-current={criteria.sort === option.value ? "true" : undefined}
+              >
+                {option.label}
+              </a>
+            ))}
+          </div>
+          {criteria.availableOnly && <span class="filter-indicator">Available only</span>}
+        </div>
 
         <div class="time-ruler" aria-hidden="true">
           <span>8 am</span><span>11 am</span><span>2 pm</span><span>5 pm</span><span>8 pm</span><span>10 pm</span>
@@ -163,15 +240,17 @@ for (const feature of criteria.features) searchParams.append("features", feature
           </div>
         ) : (
           <div class="room-list">
-            {roomResults.map((room) => (
+            {roomResults.map((room, index) => (
               <article class:list={["room-row", { unavailable: !room.available }]}>
                 <div class="room-main">
+                  <span class="room-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
                   <div class="room-identity">
                     <span class:list={["availability", { unavailable: !room.available }]}>
                       {room.available ? "Available" : "Clashes"}
                     </span>
                     <h3>{room.name}</h3>
                     <p>{room.building} · {room.level}</p>
+                    <p class="room-note">{room.note}</p>
                   </div>
                   <div class="room-metrics">
                     <span><strong>{room.capacity}</strong> seats</span>
@@ -196,8 +275,18 @@ for (const feature of criteria.features) searchParams.append("features", feature
                 </div>
 
                 <div class="room-footer">
-                  <div class="facility-list" aria-label="Room facilities">
-                    {room.features.map((feature) => <span>{facilityLabels[feature]}</span>)}
+                  <div class="room-support">
+                    <div class="facility-list" aria-label="Room facilities">
+                      {room.features.map((feature) => <span>{facilityLabels[feature]}</span>)}
+                    </div>
+                    <details class="room-info">
+                      <summary>Room details</summary>
+                      <div>
+                        <strong>{room.building}</strong>
+                        <p>{room.level} · {room.capacity} seats · about {room.walkMinutes} minutes away</p>
+                        <p>Representative room record; confirm live access and opening hours with ANU.</p>
+                      </div>
+                    </details>
                   </div>
                   {room.available ? (
                     <details class="booking-details">
@@ -213,6 +302,10 @@ for (const feature of criteria.features) searchParams.append("features", feature
                           <input type="hidden" name="start" value={criteria.start} />
                           <input type="hidden" name="duration" value={criteria.duration} />
                           <input type="hidden" name="capacity" value={criteria.capacity} />
+                          <input type="hidden" name="sort" value={criteria.sort} />
+                          {criteria.availableOnly && (
+                            <input type="hidden" name="availableOnly" value="true" />
+                          )}
                           {criteria.features.map((feature) => (
                             <input type="hidden" name="features" value={feature} />
                           ))}
@@ -229,7 +322,16 @@ for (const feature of criteria.features) searchParams.append("features", feature
                       </div>
                     </details>
                   ) : (
-                    <span class="clash-label">Choose another time</span>
+                    <div class="alternate-times">
+                      <span>Next openings</span>
+                      {room.nextAvailableStarts.length > 0 ? (
+                        room.nextAvailableStarts.map((start) => (
+                          <a href={queryAtTime(start)}>{formatTime(start)}</a>
+                        ))
+                      ) : (
+                        <strong>Try another day</strong>
+                      )}
+                    </div>
                   )}
                 </div>
               </article>
@@ -270,11 +372,25 @@ for (const feature of criteria.features) searchParams.append("features", feature
                   <p>{booking.room.name}</p>
                   <p class="organiser">Booked by {booking.organiser}</p>
                 </div>
-                <form method="post" action={`/api/bookings/${booking.id}`}>
-                  <button class="icon-button" type="submit" title={`Cancel ${booking.purpose}`} aria-label={`Cancel ${booking.purpose}`}>
-                    <span aria-hidden="true">×</span>
-                  </button>
-                </form>
+                <div class="booking-actions">
+                  <a
+                    class="calendar-link"
+                    href={`/api/bookings/${booking.id}/calendar.ics`}
+                    download
+                    title={`Add ${booking.purpose} to a calendar`}
+                  >Calendar</a>
+                  <form class="cancel-form" method="post" action={`/api/bookings/${booking.id}`}>
+                    <button
+                      class="icon-button"
+                      type="submit"
+                      title={`Cancel ${booking.purpose}`}
+                      aria-label={`Cancel ${booking.purpose}`}
+                      data-booking-name={booking.purpose}
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  </form>
+                </div>
               </article>
             ))}
           </div>
@@ -287,6 +403,19 @@ for (const feature of criteria.features) searchParams.append("features", feature
       </aside>
     </main>
 
+    <dialog class="cancel-dialog" id="cancel-dialog" aria-labelledby="cancel-title">
+      <form method="dialog">
+        <span class="dialog-mark" aria-hidden="true">×</span>
+        <p class="eyebrow">Confirm cancellation</p>
+        <h2 id="cancel-title">Cancel this booking?</h2>
+        <p id="cancel-copy">The room will become available to another group.</p>
+        <div>
+          <button class="secondary-button" value="close">Keep booking</button>
+          <button class="danger-button" type="button" data-confirm-cancel>Cancel booking</button>
+        </div>
+      </form>
+    </dialog>
+
     <script>
       const source = new EventSource("/api/events");
       const update = document.querySelector<HTMLElement>("#live-update");
@@ -294,6 +423,25 @@ for (const feature of criteria.features) searchParams.append("features", feature
         if (update) update.hidden = false;
       });
       document.querySelector("[data-refresh]")?.addEventListener("click", () => location.reload());
+
+      const cancelDialog = document.querySelector<HTMLDialogElement>("#cancel-dialog");
+      const cancelCopy = document.querySelector<HTMLElement>("#cancel-copy");
+      let pendingCancellation: HTMLFormElement | null = null;
+      for (const form of document.querySelectorAll<HTMLFormElement>(".cancel-form")) {
+        form.addEventListener("submit", (event) => {
+          if (!cancelDialog) return;
+          event.preventDefault();
+          pendingCancellation = form;
+          const button = form.querySelector<HTMLButtonElement>("[data-booking-name]");
+          if (cancelCopy && button?.dataset.bookingName) {
+            cancelCopy.textContent = `“${button.dataset.bookingName}” will be removed and the room will become available.`;
+          }
+          cancelDialog.showModal();
+        });
+      }
+      document.querySelector("[data-confirm-cancel]")?.addEventListener("click", () => {
+        pendingCancellation?.submit();
+      });
     </script>
   </body>
 </html>

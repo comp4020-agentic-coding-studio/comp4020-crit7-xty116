@@ -1,5 +1,10 @@
 import type { APIRoute } from "astro";
-import { dateInCanberra, minutesToTime, timeToMinutes } from "../../lib/booking";
+import {
+  dateInCanberra,
+  minutesToTime,
+  timeInCanberra,
+  timeToMinutes,
+} from "../../lib/booking";
 import {
   BookingConflictError,
   createBooking,
@@ -39,14 +44,19 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     start,
     duration: String(duration),
     capacity: String(form.get("capacity") ?? "1"),
+    sort: String(form.get("sort") ?? "best"),
   });
   for (const feature of form.getAll("features")) search.append("features", String(feature));
+  if (form.get("availableOnly") === "true") search.set("availableOnly", "true");
 
   if (!Number.isInteger(roomId) || roomId < 1) {
     return messageResponse(request, redirect, "Choose a valid room.", 400, search);
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < dateInCanberra()) {
     return messageResponse(request, redirect, "Choose today or a future date.", 400, search);
+  }
+  if (date === dateInCanberra() && startMinutes !== null && startMinutes <= timeInCanberra()) {
+    return messageResponse(request, redirect, "Choose a time that has not already passed.", 400, search);
   }
   if (
     startMinutes === null ||
