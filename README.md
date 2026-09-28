@@ -1,18 +1,31 @@
-# Your prototype
+# Roomline: an ANU room-finding prototype
 
-<!-- TEMPLATE: this file is yours, and the deployed app publishes it in full at
-     /readme/ --- a visitor reads it before they touch the app, and so does the
-     marker. Replace everything in it, this comment included. -->
-
-What this is, in a paragraph: the thing, and what it's for.
+Roomline replaces one narrow part of university room booking: turning a group's
+needs into an available place without making the organiser cross-reference a
+room directory, a timetable, and a separate booking form. A user chooses a
+date, start time, duration, group size, and facilities; compares suitable
+spaces; makes a booking; and can confirm or cancel it after a reload. The room
+catalogue is representative prototype data, not a connection to ANU's live
+inventory or identity systems.
 
 ## What good looks like here
 
-Say what good means for this app: what you decided, what you read or looked at
-while deciding, and what you chose not to build. The rules that decision
-produced live in `CLAUDE.md` and the checks that protect it live in `spec/`;
-this is the argument they came from, so say which parts of good are enforced and
-which are judgement calls.
+The useful outcome is certainty. Search results need to explain why a room fits,
+not merely return a name, and the system must refuse overlapping reservations
+even if two people act at nearly the same time. A successful booking must remain
+visible after refresh and must be reversible. The interface should remain
+legible on a phone while still making several rooms easy to compare on a large
+screen.
 
-Images go in `public/` and are linked relatively --- `![alt](public/before.png)`
---- which renders on GitHub and at `/readme/` alike.
+I modelled the smallest credible end-to-end slice: representative spaces,
+availability, booking creation, conflict handling, persistence, and
+cancellation. I deliberately did not imitate ANU authentication, approvals,
+recurring reservations, or claim real-time campus accuracy. Those features
+would add false authority before the core interaction is proven.
+
+`CLAUDE.md` turns these decisions into working rules. The supplied invariants
+protect page structure and an accessibility floor, while
+`spec/room-booking.test.ts` drives the built server over HTTP to protect search,
+conflict rejection, persistence, and cancellation. Visual hierarchy, clarity
+of facility labels, and the usefulness of the room comparison remain judgement
+calls checked at the desktop and mobile marking viewports.
