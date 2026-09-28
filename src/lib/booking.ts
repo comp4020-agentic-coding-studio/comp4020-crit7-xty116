@@ -66,9 +66,13 @@ export function parseCriteria(params: URLSearchParams): SearchCriteria {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : dateInCanberra();
   const rawStart = params.get("start") ?? "10:00";
   const parsedStart = timeToMinutes(rawStart);
-  const startMinutes = parsedStart !== null && parsedStart >= 480 ? parsedStart : 600;
   const rawDuration = Number(params.get("duration") ?? 60);
   const duration = [30, 60, 90, 120, 180].includes(rawDuration) ? rawDuration : 60;
+  const latestStart = 22 * 60 - duration;
+  const startMinutes =
+    parsedStart !== null && parsedStart >= 8 * 60 && parsedStart <= latestStart
+      ? parsedStart
+      : Math.min(10 * 60, latestStart);
   const rawCapacity = Number(params.get("capacity") ?? 4);
   const capacity = Number.isInteger(rawCapacity)
     ? Math.min(40, Math.max(1, rawCapacity))

@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { minutesToTime, timeToMinutes } from "../../lib/booking";
+import { dateInCanberra, minutesToTime, timeToMinutes } from "../../lib/booking";
 import {
   BookingConflictError,
   createBooking,
@@ -45,8 +45,8 @@ export const POST: APIRoute = async ({ request, redirect }) => {
   if (!Number.isInteger(roomId) || roomId < 1) {
     return messageResponse(request, redirect, "Choose a valid room.", 400, search);
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return messageResponse(request, redirect, "Choose a valid date.", 400, search);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < dateInCanberra()) {
+    return messageResponse(request, redirect, "Choose today or a future date.", 400, search);
   }
   if (
     startMinutes === null ||
