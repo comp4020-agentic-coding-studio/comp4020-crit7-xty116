@@ -1,8 +1,36 @@
 ---
-import { listMessages } from "../lib/db";
+import {
+  dateInCanberra,
+  FACILITIES,
+  formatDate,
+  formatTime,
+  parseCriteria,
+} from "../lib/booking";
+import { listBookings, listRooms } from "../lib/db";
 import "../styles.css";
 
-const messages = listMessages();
+const criteria = parseCriteria(Astro.url.searchParams);
+const roomResults = listRooms(criteria);
+const currentBookings = listBookings();
+const availableCount = roomResults.filter((room) => room.available).length;
+const notice = Astro.url.searchParams.get("notice");
+const error = Astro.url.searchParams.get("error");
+const facilityLabels = Object.fromEntries(
+  FACILITIES.map((facility) => [facility.value, facility.label]),
+);
+const dayStart = 8 * 60;
+const dayLength = 14 * 60;
+const percent = (minutes: number) =>
+  Math.min(100, Math.max(0, ((minutes - dayStart) / dayLength) * 100));
+const blockStyle = (start: number, end: number) =>
+  `--left:${percent(start)}%;--width:${Math.max(1.5, percent(end) - percent(start))}%`;
+const searchEnd = criteria.startMinutes + criteria.duration;
+const searchParams = new URLSearchParams();
+searchParams.set("date", criteria.date);
+searchParams.set("start", criteria.start);
+searchParams.set("duration", String(criteria.duration));
+searchParams.set("capacity", String(criteria.capacity));
+for (const feature of criteria.features) searchParams.append("features", feature);
 ---
 
 <!doctype html>
@@ -10,44 +38,262 @@ const messages = listMessages();
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>COMP4020 prototype</title>
+    <meta
+      name="description"
+      content="A full-stack prototype for finding and booking representative ANU rooms."
+    />
+    <title>Roomline | ANU room finder prototype</title>
   </head>
   <body>
-    <nav aria-label="site">
-      <a href="/">Guestbook</a>
-      <a href="/readme/">About</a>
-    </nav>
-    <main>
-      <h1>Guestbook</h1>
-      <p>
-        A minimal full-stack starter: messages live in SQLite on the machine's
-        volume (state survives a reload and a redeploy), and new messages
-        appear in every open tab over a server-sent-events stream — open this
-        page twice and sign it in one. Replace all of this with your own
-        prototype.
-      </p>
-      <form method="post" action="/api/messages">
-        <label for="body">Leave a message</label>
-        <input id="body" name="body" required maxlength="500" />
-        <button>Sign</button>
-      </form>
-      <ul id="messages">
-        {messages.map((message) => <li>{message.body}</li>)}
-      </ul>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Roomline home">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <span><strong>Roomline</strong><small>ANU space finder</small></span>
+      </a>
+      <nav aria-label="Site navigation">
+        <a class="nav-active" href="#results">Find a room</a>
+        <a href="#bookings">My bookings</a>
+        <a href="/readme/">About</a>
+      </nav>
+      <span class="prototype-label">Working prototype</span>
+    </header>
+
+    {(notice || error) && (
+      <div class:list={["status-banner", { error: Boolean(error) }]} role="status" aria-live="polite">
+        <span aria-hidden="true">{error ? "!" : "OK"}</span>
+        <p>{error ?? notice}</p>
+        <a href={`/?${searchParams.toString()}`}>Dismiss</a>
+      </div>
+    )}
+
+    <main class="workspace">
+      <aside class="search-panel" aria-labelledby="search-title">
+        <div class="panel-heading">
+          <p class="eyebrow">Plan a session</p>
+          <h1 id="search-title">Find the right room</h1>
+          <p>Set the non-negotiables. Roomline handles the timetable check.</p>
+        </div>
+
+        <form class="search-form" method="get" action="/">
+          <div class="field-group two-up">
+            <label>
+              <span>Date</span>
+              <input type="date" name="date" value={criteria.date} min={dateInCanberra()} required />
+            </label>
+            <label>
+              <span>Start</span>
+              <input
+                type="time"
+                name="start"
+                value={criteria.start}
+                min="08:00"
+                max="21:30"
+                step="1800"
+                required
+              />
+            </label>
+          </div>
+
+          <div class="field-group two-up">
+            <label>
+              <span>Duration</span>
+              <select name="duration">
+                <option value="30" selected={criteria.duration === 30}>30 min</option>
+                <option value="60" selected={criteria.duration === 60}>1 hour</option>
+                <option value="90" selected={criteria.duration === 90}>1.5 hours</option>
+                <option value="120" selected={criteria.duration === 120}>2 hours</option>
+                <option value="180" selected={criteria.duration === 180}>3 hours</option>
+              </select>
+            </label>
+            <label>
+              <span>People</span>
+              <input type="number" name="capacity" value={criteria.capacity} min="1" max="40" required />
+            </label>
+          </div>
+
+          <fieldset>
+            <legend>Facilities</legend>
+            <div class="check-list">
+              {FACILITIES.map((facility) => (
+                <label class="check-row">
+                  <input
+                    type="checkbox"
+                    name="features"
+                    value={facility.value}
+                    checked={criteria.features.includes(facility.value)}
+                  />
+                  <span>{facility.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <button class="primary-button" type="submit">
+            <span>Update results</span><span aria-hidden="true">→</span>
+          </button>
+        </form>
+
+        <div class="scope-note">
+          <strong>Prototype scope</strong>
+          <p>Representative spaces only. Roomline is not connected to live ANU systems.</p>
+        </div>
+      </aside>
+
+      <section class="results-panel" id="results" aria-labelledby="results-title">
+        <header class="results-header">
+          <div>
+            <p class="eyebrow">{formatDate(criteria.date)} · {formatTime(criteria.startMinutes)}–{formatTime(searchEnd)}</p>
+            <h2 id="results-title">{availableCount} of {roomResults.length} rooms available</h2>
+          </div>
+          <div class="legend" aria-label="Availability legend">
+            <span><i class="legend-dot selected"></i>Your time</span>
+            <span><i class="legend-dot occupied"></i>Booked</span>
+          </div>
+        </header>
+
+        <div class="time-ruler" aria-hidden="true">
+          <span>8 am</span><span>11 am</span><span>2 pm</span><span>5 pm</span><span>8 pm</span><span>10 pm</span>
+        </div>
+
+        {roomResults.length === 0 ? (
+          <div class="empty-state">
+            <span aria-hidden="true">0</span>
+            <h2>No rooms match every requirement</h2>
+            <p>Try reducing the group size or removing one facility.</p>
+          </div>
+        ) : (
+          <div class="room-list">
+            {roomResults.map((room) => (
+              <article class:list={["room-row", { unavailable: !room.available }]}>
+                <div class="room-main">
+                  <div class="room-identity">
+                    <span class:list={["availability", { unavailable: !room.available }]}>
+                      {room.available ? "Available" : "Clashes"}
+                    </span>
+                    <h3>{room.name}</h3>
+                    <p>{room.building} · {room.level}</p>
+                  </div>
+                  <div class="room-metrics">
+                    <span><strong>{room.capacity}</strong> seats</span>
+                    <span><strong>{room.walkMinutes}</strong> min walk</span>
+                  </div>
+                </div>
+
+                <div class="timeline" aria-label={`Schedule for ${room.name} from 8 am to 10 pm`}>
+                  <span class="timeline-grid" aria-hidden="true"></span>
+                  <span
+                    class:list={["timeline-search", { conflict: !room.available }]}
+                    style={blockStyle(criteria.startMinutes, searchEnd)}
+                    title={`Requested: ${formatTime(criteria.startMinutes)} to ${formatTime(searchEnd)}`}
+                  ></span>
+                  {room.dayBookings.map((booking) => (
+                    <span
+                      class="timeline-booking"
+                      style={blockStyle(booking.startMinutes, booking.endMinutes)}
+                      title={`Booked ${formatTime(booking.startMinutes)} to ${formatTime(booking.endMinutes)}`}
+                    ></span>
+                  ))}
+                </div>
+
+                <div class="room-footer">
+                  <div class="facility-list" aria-label="Room facilities">
+                    {room.features.map((feature) => <span>{facilityLabels[feature]}</span>)}
+                  </div>
+                  {room.available ? (
+                    <details class="booking-details">
+                      <summary>Book room <span aria-hidden="true">→</span></summary>
+                      <div class="booking-form-wrap">
+                        <div>
+                          <strong>{room.name}</strong>
+                          <p>{formatDate(criteria.date)}, {formatTime(criteria.startMinutes)}–{formatTime(searchEnd)}</p>
+                        </div>
+                        <form method="post" action="/api/bookings">
+                          <input type="hidden" name="roomId" value={room.id} />
+                          <input type="hidden" name="date" value={criteria.date} />
+                          <input type="hidden" name="start" value={criteria.start} />
+                          <input type="hidden" name="duration" value={criteria.duration} />
+                          <input type="hidden" name="capacity" value={criteria.capacity} />
+                          {criteria.features.map((feature) => (
+                            <input type="hidden" name="features" value={feature} />
+                          ))}
+                          <label>
+                            <span>Your name</span>
+                            <input name="organiser" maxlength="60" autocomplete="name" required />
+                          </label>
+                          <label>
+                            <span>What is the session for?</span>
+                            <input name="purpose" maxlength="80" placeholder="e.g. COMP4020 group review" required />
+                          </label>
+                          <button class="primary-button" type="submit">Confirm booking</button>
+                        </form>
+                      </div>
+                    </details>
+                  ) : (
+                    <span class="clash-label">Choose another time</span>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <aside class="bookings-panel" id="bookings" aria-labelledby="bookings-title">
+        <header>
+          <p class="eyebrow">Saved in this prototype</p>
+          <h2 id="bookings-title">My bookings</h2>
+          <span class="booking-count">{currentBookings.length}</span>
+        </header>
+
+        <div id="live-update" class="live-update" hidden role="status">
+          <span>A booking changed in another tab.</span>
+          <button type="button" data-refresh>Refresh</button>
+        </div>
+
+        {currentBookings.length === 0 ? (
+          <div class="empty-bookings">
+            <span class="empty-calendar" aria-hidden="true"><i></i></span>
+            <strong>No bookings yet</strong>
+            <p>Available rooms can be booked directly from the results.</p>
+          </div>
+        ) : (
+          <div class="booking-list">
+            {currentBookings.map((booking) => (
+              <article class="booking-item">
+                <time datetime={booking.date}>
+                  <span>{formatDate(booking.date).split(" ")[1]}</span>
+                  <strong>{formatDate(booking.date).split(" ")[2]}</strong>
+                </time>
+                <div>
+                  <p class="booking-time">{formatTime(booking.startMinutes)}–{formatTime(booking.endMinutes)}</p>
+                  <h3>{booking.purpose}</h3>
+                  <p>{booking.room.name}</p>
+                  <p class="organiser">Booked by {booking.organiser}</p>
+                </div>
+                <form method="post" action={`/api/bookings/${booking.id}`}>
+                  <button class="icon-button" type="submit" title={`Cancel ${booking.purpose}`} aria-label={`Cancel ${booking.purpose}`}>
+                    <span aria-hidden="true">×</span>
+                  </button>
+                </form>
+              </article>
+            ))}
+          </div>
+        )}
+
+        <footer>
+          <span>Bookings persist across refreshes</span>
+          <a href="/readme/">How this prototype works</a>
+        </footer>
+      </aside>
     </main>
+
     <script>
-      // The live half of the demo: subscribe to the SSE stream and prepend
-      // messages as they arrive. The form itself needs none of this — its
-      // POST + redirect re-renders the submitting tab from SQLite; this
-      // stream is how every other tab finds out.
-      const list = document.querySelector("#messages");
       const source = new EventSource("/api/events");
-      source.addEventListener("message", (event) => {
-        const message = JSON.parse(event.data);
-        const item = document.createElement("li");
-        item.textContent = message.body;
-        list?.prepend(item);
+      const update = document.querySelector<HTMLElement>("#live-update");
+      source.addEventListener("booking", () => {
+        if (update) update.hidden = false;
       });
+      document.querySelector("[data-refresh]")?.addEventListener("click", () => location.reload());
     </script>
   </body>
 </html>

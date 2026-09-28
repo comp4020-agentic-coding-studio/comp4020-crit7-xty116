@@ -13,7 +13,7 @@ const formPost = (path: string, values: Record<string, string>) =>
     redirect: "manual",
   });
 
-describe.sequential("room booking contract", () => {
+describe("room booking contract", () => {
   const date = "2030-05-14";
   const label = `Contract review ${process.hrtime.bigint()}`;
   let roomId = 0;

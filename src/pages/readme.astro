@@ -1,13 +1,8 @@
 ---
-// README.md, rendered: what this app is and what good looks like here,
-// published with the app. spec/readme.test.ts checks the whole of it is here.
 import * as readme from "../../README.md";
 import "../styles.css";
 
-const title = readme.getHeadings().find((h) => h.depth === 1)?.text ?? "README";
-
-// README images are committed to public/ and linked relatively (public/x.png)
-// so they render on GitHub; here they're served from the site root.
+const title = readme.getHeadings().find((heading) => heading.depth === 1)?.text ?? "About Roomline";
 const html = (await readme.compiledContent()).replace(/(src|href)="public\//g, '$1="/');
 ---
 
@@ -18,11 +13,22 @@ const html = (await readme.compiledContent()).replace(/(src|href)="public\//g, '
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
   </head>
-  <body>
-    <nav aria-label="site">
-      <a href="/">Guestbook</a>
-      <a href="/readme/">About</a>
-    </nav>
-    <main set:html={html} />
+  <body class="docs-page">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Roomline home">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <span><strong>Roomline</strong><small>ANU space finder</small></span>
+      </a>
+      <nav aria-label="Site navigation">
+        <a href="/#results">Find a room</a>
+        <a href="/#bookings">My bookings</a>
+        <a class="nav-active" href="/readme/">About</a>
+      </nav>
+      <span class="prototype-label">Working prototype</span>
+    </header>
+    <main class="docs-content">
+      <a class="back-link" href="/">← Back to room finder</a>
+      <article set:html={html} />
+    </main>
   </body>
 </html>

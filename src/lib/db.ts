@@ -1,35 +1,176 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
-import { desc } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { type Message, messages } from "./schema";
+import type { Facility } from "./booking";
+import { type Booking, bookings, type Room, rooms } from "./schema";
 
-// One SQLite file is the app's whole persistent state. In production
-// fly.toml points DATABASE_PATH at the machine's volume (/data), which is
-// how state survives a reload and a redeploy; locally it defaults to an
-// untracked file in .data/.
 const path = process.env.DATABASE_PATH ?? "./.data/app.db";
 mkdirSync(dirname(path), { recursive: true });
 
 const client = new Database(path);
 client.pragma("journal_mode = WAL");
+client.pragma("foreign_keys = ON");
 
 export const db = drizzle(client);
-
-// Migrations run at boot, on whatever machine holds the volume — the
-// recommended shape for SQLite on Fly, where there's no separate machine to
-// run them from. The flow: edit src/lib/schema.ts, `pnpm db:generate`,
-// commit the migration it writes to drizzle/.
 migrate(db, { migrationsFolder: "./drizzle" });
 
-export type { Message };
+const ROOM_SEEDS: Room[] = [
+  {
+    id: 1,
+    name: "Hanna Neumann 145",
+    building: "Hanna Neumann Building #145",
+    level: "Ground floor",
+    capacity: 8,
+    features: JSON.stringify(["whiteboard", "accessible", "quiet"]),
+    walkMinutes: 4,
+    note: "Small, focused room beside the computing precinct.",
+  },
+  {
+    id: 2,
+    name: "Marie Reay 3.02",
+    building: "Marie Reay Teaching Centre #155",
+    level: "Level 3",
+    capacity: 12,
+    features: JSON.stringify(["display", "whiteboard", "accessible"]),
+    walkMinutes: 6,
+    note: "Flexible table layout for project meetings and tutorials.",
+  },
+  {
+    id: 3,
+    name: "Kambri 2.21",
+    building: "Kambri Cultural Centre #153",
+    level: "Level 2",
+    capacity: 24,
+    features: JSON.stringify(["display", "whiteboard", "accessible", "video"]),
+    walkMinutes: 7,
+    note: "Hybrid-ready collaboration room near the centre of campus.",
+  },
+  {
+    id: 4,
+    name: "Hancock 2.13",
+    building: "Hancock Library #43",
+    level: "Level 2",
+    capacity: 6,
+    features: JSON.stringify(["whiteboard", "quiet"]),
+    walkMinutes: 9,
+    note: "Quiet discussion room suited to close reading and revision.",
+  },
+  {
+    id: 5,
+    name: "Birch 1.08",
+    building: "Birch Building #35",
+    level: "Level 1",
+    capacity: 16,
+    features: JSON.stringify(["display", "whiteboard", "accessible", "video"]),
+    walkMinutes: 11,
+    note: "A medium seminar room with presentation and call facilities.",
+  },
+  {
+    id: 6,
+    name: "Chifley 4.09",
+    building: "Chifley Library #15",
+    level: "Level 4",
+    capacity: 4,
+    features: JSON.stringify(["display", "quiet", "accessible"]),
+    walkMinutes: 8,
+    note: "Compact library room for interviews and pair work.",
+  },
+];
 
-export function listMessages(): Message[] {
-  return db.select().from(messages).orderBy(desc(messages.id)).limit(50).all();
+db.insert(rooms).values(ROOM_SEEDS).onConflictDoNothing().run();
+
+export type RoomView = Omit<Room, "features"> & { features: Facility[] };
+export type RoomResult = RoomView & { available: boolean; dayBookings: Booking[] };
+export type BookingView = Booking & { room: RoomView };
+
+export class BookingConflictError extends Error {}
+export class RoomNotFoundError extends Error {}
+
+function roomView(room: Room): RoomView {
+  return { ...room, features: JSON.parse(room.features) as Facility[] };
 }
 
-export function addMessage(body: string): Message {
-  return db.insert(messages).values({ body }).returning().get();
+export function listRooms(input: {
+  date: string;
+  startMinutes: number;
+  duration: number;
+  capacity: number;
+  features: Facility[];
+}): RoomResult[] {
+  const allRooms = db
+    .select()
+    .from(rooms)
+    .where(gte(rooms.capacity, input.capacity))
+    .orderBy(asc(rooms.walkMinutes), asc(rooms.capacity))
+    .all();
+  const dayBookings = db
+    .select()
+    .from(bookings)
+    .where(eq(bookings.date, input.date))
+    .orderBy(asc(bookings.startMinutes))
+    .all();
+  const requestedEnd = input.startMinutes + input.duration;
+
+  return allRooms
+    .map(roomView)
+    .filter((room) => input.features.every((feature) => room.features.includes(feature)))
+    .map((room) => {
+      const roomBookings = dayBookings.filter((booking) => booking.roomId === room.id);
+      const available = !roomBookings.some(
+        (booking) =>
+          booking.startMinutes < requestedEnd && booking.endMinutes > input.startMinutes,
+      );
+      return { ...room, available, dayBookings: roomBookings };
+    });
 }
+
+export function listBookings(): BookingView[] {
+  return db
+    .select({ booking: bookings, room: rooms })
+    .from(bookings)
+    .innerJoin(rooms, eq(bookings.roomId, rooms.id))
+    .orderBy(asc(bookings.date), asc(bookings.startMinutes))
+    .limit(50)
+    .all()
+    .map(({ booking, room }) => ({ ...booking, room: roomView(room) }));
+}
+
+export function createBooking(input: {
+  roomId: number;
+  date: string;
+  startMinutes: number;
+  endMinutes: number;
+  organiser: string;
+  purpose: string;
+}): BookingView {
+  return db.transaction((tx) => {
+    const room = tx.select().from(rooms).where(eq(rooms.id, input.roomId)).get();
+    if (!room) throw new RoomNotFoundError("Room not found");
+
+    const conflict = tx
+      .select({ id: bookings.id })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.roomId, input.roomId),
+          eq(bookings.date, input.date),
+          lt(bookings.startMinutes, input.endMinutes),
+          gt(bookings.endMinutes, input.startMinutes),
+        ),
+      )
+      .get();
+    if (conflict) throw new BookingConflictError("This room is already booked then.");
+
+    const booking = tx.insert(bookings).values(input).returning().get();
+    return { ...booking, room: roomView(room) };
+  });
+}
+
+export function cancelBooking(id: number): Booking | undefined {
+  return db.delete(bookings).where(eq(bookings.id, id)).returning().get();
+}
+
+export type { Booking, Room };

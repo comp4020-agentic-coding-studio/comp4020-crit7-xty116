@@ -1,8 +1,7 @@
 import { EventEmitter } from "node:events";
 
-// One process, one bus: every open SSE connection subscribes here, and a new
-// message is broadcast to all of them. This only works because the app runs
-// on exactly one machine (see fly.toml) — a second machine would have its own
-// bus and clients would miss events.
+// One process, one bus: booking changes can notify every open tab. This fits
+// the single-machine deployment fixed by fly.toml; SQLite remains the source
+// of truth, and clients reload from it when an event arrives.
 export const bus = new EventEmitter();
 bus.setMaxListeners(0);
