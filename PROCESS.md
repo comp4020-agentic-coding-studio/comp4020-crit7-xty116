@@ -24,11 +24,17 @@ four business checks returned 404, proving the test described new behaviour.
 The implementation in [`753f7d0`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit7-xty116/commit/753f7d0)
 introduced Drizzle migrations, seeded rooms, atomic interval checks, JSON and
 form routes, SSE change notices, and the timetable interface. I corrected the
-result through the same production build CI runs: 29 tests covered search,
+result through the same production build CI runs: 31 tests covered search,
 creation, overlap rejection, reload persistence, cancellation, structure, and
 accessibility. I then drove a real booking in the browser at 1920×1080 and
 390×844, refreshed to confirm persistence, checked zero horizontal overflow,
 and tightened invalid-time and past-date handling found during that review.
+
+After the critique “所有交互键必须要能交互,”
+[`f8e678c`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit7-xty116/commit/f8e678c)
+added real sorting, available-only filtering, recovery times, room details,
+calendar export, and guarded cancellation. I replayed every control at both
+marking viewports before accepting the correction.
 
 The final check was the deployed Fly app, not the dev server. I also kept the
 starter's `/readme/`, CSRF, migration, single-machine, and secret-handling
